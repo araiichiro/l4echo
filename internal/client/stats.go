@@ -7,6 +7,8 @@ import (
 )
 
 type Stats struct {
+	Name string
+
 	mu  sync.Mutex
 	min time.Duration
 	max time.Duration
@@ -18,7 +20,10 @@ type Stats struct {
 	received uint64
 }
 
-func (s *Stats) Update(d time.Duration) {
+func (s *Stats) OnReceived(sentAt time.Time) {
+	atomic.AddUint64(&s.received, 1)
+
+	d := time.Now().Sub(sentAt)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.min > d || s.min == 0 {
@@ -29,18 +34,14 @@ func (s *Stats) Update(d time.Duration) {
 	}
 }
 
-func (s *Stats) Drop(dropped uint64) {
-	atomic.AddUint64(&s.dropped, dropped)
+func (s *Stats) Dropped(count uint64) {
+	atomic.AddUint64(&s.dropped, count)
 }
 
 func (s *Stats) Delayed() {
 	atomic.AddUint64(&s.delayed, 1)
 }
 
-func (s *Stats) Sending() {
+func (s *Stats) OnSending() {
 	atomic.AddUint64(&s.sending, 1)
-}
-
-func (s *Stats) Received() {
-	atomic.AddUint64(&s.received, 1)
 }

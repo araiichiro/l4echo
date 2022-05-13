@@ -10,9 +10,10 @@ var (
 	env = &Env{
 		Mode: "",
 		ClientEnv: ClientEnv{
-			Concurrency: 1024,
-			Loop:        500,
-			Interval:    80 * time.Millisecond,
+			Concurrency: 32,
+			Completions: 96,
+			Duration:    30 * time.Second,
+			RPS:         0.2,
 			TCPAddr:     "localhost:7000",
 			UDPAddr:     "localhost:7001",
 		},
@@ -37,8 +38,9 @@ type Env struct {
 
 type ClientEnv struct {
 	Concurrency int
-	Loop        int
-	Interval    time.Duration
+	Completions int
+	Duration    time.Duration
+	RPS         float64
 	TCPAddr     string
 	UDPAddr     string
 }

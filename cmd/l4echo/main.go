@@ -11,25 +11,31 @@ import (
 func main() {
 	switch env.Mode {
 	case "client":
+		count := int(env.RPS * env.Duration.Seconds())
+		interval := time.Duration(float64(time.Second) / env.RPS)
 		cs := []client.Config{
 			{
 				Concurrency: env.Concurrency,
+				Completions: env.Completions,
 				Network:     "udp",
 				Address:     env.ClientEnv.UDPAddr,
+				RecvTimeout: 0,
+				SendTimeout: 0,
 				Workload: client.Workload{
-					Loop:     env.Loop,
-					Interval: env.Interval,
+					Count:    count,
+					Interval: interval,
 				},
 			},
 			{
 				Concurrency: env.Concurrency,
+				Completions: env.Completions,
 				Network:     "tcp",
 				Address:     env.ClientEnv.TCPAddr,
 				RecvTimeout: 10 * time.Second,
 				SendTimeout: 1 * time.Second,
 				Workload: client.Workload{
-					Loop:     env.Loop,
-					Interval: env.Interval,
+					Count:    count,
+					Interval: interval,
 				},
 			},
 		}

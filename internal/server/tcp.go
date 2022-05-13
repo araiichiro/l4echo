@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"io"
 	"net"
 	"time"
 
@@ -42,18 +44,26 @@ func start(conn net.Conn) {
 	log.Info("accepted TCP conn:", conn.RemoteAddr())
 	conn = &network.ConnWithTimeout{
 		Conn:         conn,
-		ReadTimeout:  10 * time.Second,
+		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 1 * time.Second,
 	}
 	buf := make([]byte, payload.Size)
 	for {
 		p, err := payload.Receive(conn, buf)
 		if err != nil {
-			log.Error("failed to receive (tcp):", err)
+			if !errors.Is(err, io.EOF) {
+				log.Error("failed to receive (tcp):", err)
+				return
+			}
+			log.Info("tcp receive loop finished")
 			return
 		}
 		if err := payload.Send(conn, p); err != nil {
-			log.Error("failed to send (tcp): ", err)
+			if !errors.Is(err, net.ErrClosed) {
+				log.Error("failed to send (tcp): ", err)
+				return
+			}
+			log.Info("tcp send loop finished")
 			return
 		}
 	}

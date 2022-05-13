@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"time"
 
@@ -15,17 +17,17 @@ type Client struct {
 }
 
 type Workload struct {
-	Loop     int
+	Count    int
 	Interval time.Duration
 }
 
 func (c *Client) Start(w *Workload) {
-	errCh := make(chan error, 1)
+	wait := make(chan struct{}, 1)
 	go func() {
 		if err := c.receiveLoop(w); err != nil {
-			errCh <- err
+			log.Error("failed to receive:", err)
 		}
-		close(errCh)
+		close(wait)
 	}()
 	if err := c.sendLoop(w); err != nil {
 		log.Error("failed to send:", err)
@@ -39,44 +41,44 @@ func (c *Client) Start(w *Workload) {
 		if err := ctx.Err(); err != nil && err != context.DeadlineExceeded {
 			log.Error("error in Loop:", err)
 		}
-	case err := <-errCh:
-		if err != nil {
-			log.Error("failed to receive:", err)
-		}
+		return
+	case <-wait:
+		return
 	}
-
 }
 
 func (c *Client) sendLoop(w *Workload) error {
 	p := payload.New()
-	for i := 0; i < w.Loop; i++ {
+	for i := 0; i < w.Count; i++ {
 		p.SetSeq(uint64(i))
 		p.SetTime(time.Now())
 		if err := payload.Send(c.conn, p); err != nil {
 			return err
 		}
-		c.Stats.Sending()
+		c.Stats.OnSending()
 		time.Sleep(w.Interval)
 	}
 	return nil
-
 }
 
 func (c *Client) receiveLoop(w *Workload) error {
 	next := uint64(0)
 	buf := make([]byte, payload.Size)
-	for i := 0; i < w.Loop; i++ {
+	for i := 0; i < w.Count; i++ {
 		p, err := payload.Receive(c.conn, buf)
 		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+				return nil
+			}
 			return err
 		}
 		seq := p.Seq()
 		if seq == next {
-			c.Stats.Update(time.Now().Sub(p.Time()))
-			c.Stats.Received()
+			c.Stats.OnReceived(p.Time())
 			next = seq + 1
 		} else if seq > next {
-			c.Stats.Drop(seq - next)
+			c.Stats.Dropped(seq - next)
+			c.Stats.OnReceived(p.Time())
 			next = seq + 1
 		} else {
 			c.Stats.Delayed()

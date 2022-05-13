@@ -13,3 +13,7 @@ func Infof(format string, v ...interface{}) {
 func Error(v ...interface{}) {
 	log.Println(v...)
 }
+
+func Errorf(format string, v ...interface{}) {
+	log.Printf(format+"\n", v...)
+}

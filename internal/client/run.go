@@ -1,60 +1,76 @@
 package client
 
 import (
+	"context"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/araiichiro/l4echo/internal/log"
 	"github.com/araiichiro/l4echo/internal/network"
+	"golang.org/x/sync/semaphore"
 )
 
 func Run(configs []Config) {
 	wg := &sync.WaitGroup{}
-	statsMap := map[string]*Stats{}
 	for _, config := range configs {
-		statsMap[config.Network] = &Stats{}
-
-		for i := 0; i < config.Concurrency; i++ {
-			wg.Add(1)
-
-			conn, err := net.Dial(config.Network, config.Address)
-			if err != nil {
-				log.Error("failed to dial:", err)
-				return
-			}
-			if config.Network == "tcp" {
-				conn = &network.ConnWithTimeout{
-					Conn:         conn,
-					ReadTimeout:  config.RecvTimeout,
-					WriteTimeout: config.SendTimeout,
-				}
-			}
-			client := &Client{
-				conn:  conn,
-				Stats: statsMap[config.Network],
-			}
-
-			go func() {
-				defer wg.Done()
-				defer func() {
-					if err := conn.Close(); err != nil {
-						log.Error("failed to close:", err)
-					}
-				}()
-				client.Start(&config.Workload)
-			}()
-		}
+		wg.Add(1)
+		c := config
+		go func() {
+			defer wg.Done()
+			run(c)
+		}()
 	}
 	wg.Wait()
+}
 
-	for name, stats := range statsMap {
-		log.Infof("Stats of %s: %+v", name, stats)
+func run(config Config) {
+	ctx := context.Background()
+	wg := &sync.WaitGroup{}
+	s := semaphore.NewWeighted(int64(config.Concurrency))
+	stats := &Stats{Name: config.Network}
+
+	for i := 0; i < config.Completions; i++ {
+		if err := s.Acquire(ctx, 1); err != nil {
+			log.Errorf("failed to acquire: %v", err)
+			continue
+		}
+		conn, err := net.Dial(config.Network, config.Address)
+		if err != nil {
+			log.Errorf("failed to dial: %v", err)
+			continue
+		}
+		if config.Network == "tcp" {
+			conn = &network.ConnWithTimeout{
+				Conn:         conn,
+				ReadTimeout:  config.RecvTimeout,
+				WriteTimeout: config.SendTimeout,
+			}
+		}
+		client := &Client{
+			conn:  conn,
+			Stats: stats,
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer s.Release(1)
+			defer func() {
+				if err := conn.Close(); err != nil {
+					log.Errorf("failed to close: %v", err)
+				}
+			}()
+			log.Info("starting client")
+			client.Start(&config.Workload)
+		}()
 	}
+	wg.Wait()
+	log.Infof("stats: %+v", stats)
 }
 
 type Config struct {
 	Concurrency int
+	Completions int
 	Network     string
 	Address     string
 	RecvTimeout time.Duration
